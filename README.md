@@ -140,6 +140,14 @@ A detailed explanation of the analysis steps is provided in:
 workflow.md
 ```
 
+## Example Data
+
+Example input files are provided in:
+
+tests/data/
+
+These can be used to run the pipeline directly.
+
 ---
 
 ## Project Structure
