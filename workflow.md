@@ -1,291 +1,343 @@
 # qPCR Analysis Workflow
 
-## Overview
+This document describes the full data analysis workflow implemented in the qPCR pipeline, from raw input files to final results and figures.
 
-This project provides a modular and reusable pipeline for qPCR data analysis.
-The workflow is designed to handle diverse datasets, including experiments spanning multiple plates, while maintaining a consistent internal data structure.
-
-The pipeline is divided into the following stages:
-
-1. Data Import & Standardization
-2. Data Validation
-3. Preprocessing
-4. Standard Curve Handling
-5. Analysis
-6. Statistics
-7. Visualization
+The workflow is modular and designed to be reproducible, transparent, and adaptable to different experimental designs.
 
 ---
 
-## Core Design Principle
+## Overview of the Pipeline
 
-All modules operate on a **standardized tidy dataframe format**.
+The analysis consists of the following major steps:
 
-### Canonical Data Format
+1. Data import and merging
+2. Metadata validation and structure definition
+3. Quality control (QC)
+4. Optional inter-plate calibration
+5. Preprocessing and filtering
+6. Technical replicate summarization
+7. Normalization (reference gene-based)
+8. Statistical analysis
+9. Visualization
+10. Export of results
 
-Each row represents one measurement:
-
-| Column Name  | Description |
-|--------------|------------|
-| sample_id    | Unique sample identifier |
-| plate_id     | Plate identifier (important for multi-plate experiments) |
-| well         | Well position (optional) |
-| target       | Gene/target name |
-| ct           | Ct value |
-| group        | Experimental group |
-| bio_rep      | Biological replicate |
-| tech_rep     | Technical replicate |
-| reference    | Reference gene indicator (optional) |
-| treatment    | Treatment condition (optional) |
-| dilution     | Dilution factor or concentration for standard curves (optional) |
-| standard_id  | Identifier for standard curve samples (optional) |
-| is_standard  | Boolean flag indicating whether a row belongs to a standard curve (optional) |
+Each step operates on well-defined intermediate DataFrames, allowing inspection and debugging at every stage.
 
 ---
 
-## Module Structure
+## 1. Data Import and Merging
 
-```text
-qpcr/
-├── __init__.py
-├── io.py
-├── schema.py
-├── preprocess.py
-├── standard_curve.py
-├── analysis.py
-├── statistics.py
-├── plotting.py
-├── config.py
-└── utils.py
+### Inputs
+
+* qPCR machine output file (e.g. Bio-Rad CSV)
+* Plate setup file containing metadata per well
+
+### Process
+
+* Load raw Ct values from machine output
+* Load experimental metadata (sample_id, group, target, etc.)
+* Merge both datasets by:
+
+  * plate_id
+  * well position
+
+### Output
+
+* `merged_df`: combined dataset with Ct values and metadata
+
+---
+
+## 2. Metadata Structure Definition
+
+The pipeline dynamically determines which metadata columns are present and relevant.
+
+### Key concepts
+
+* **group_cols**: define technical replicate grouping
+* **id_cols**: define biological identity for normalization
+* **required_metadata**: columns required for valid analysis
+
+### Example
+
+* group_cols:
+
+  ```
+  plate_id, group, sample_id, (optional: timepoint), bio_rep, target
+  ```
+* id_cols:
+
+  ```
+  plate_id, group, sample_id, (optional: timepoint), bio_rep
+  ```
+
+This allows flexible handling of experiments with or without time series.
+
+---
+
+## 3. Quality Control (QC)
+
+Performed on the merged raw dataset before filtering.
+
+### Checks include
+
+* Missing metadata
+* Unexpected number of technical replicates
+* High variability between replicates
+* Control well behavior
+* Ct outliers
+
+### Output
+
+* QC report dictionary containing:
+
+  * overview
+  * missing_metadata
+  * replicate_issues
+  * replicate_variability
+  * control_summary
+  * suspicious_controls
+  * ct_outliers
+
+---
+
+## 4. Optional Inter-Plate Calibration
+
+If calibrator samples are present, inter-plate normalization is applied.
+
+### Steps
+
+1. Identify calibrator wells (`is_calibrator == True`)
+2. Compute per-plate, per-target mean Ct
+3. Define reference:
+
+   * global mean OR
+   * specific reference plate
+4. Calculate offset:
+
+   ```
+   offset = reference_ct - plate_ct
+   ```
+5. Apply correction:
+
+   ```
+   ct_calibrated = ct + offset
+   ```
+
+### Output
+
+* `ct_calibrated` column
+* `calibrator_summary_df`
+* `calibrator_offsets_df`
+
+If no calibrators are present, raw Ct values are used unchanged.
+
+---
+
+## 5. Preprocessing and Filtering
+
+### Steps
+
+* Remove missing Ct values
+* Remove control wells (optional)
+* Retain calibrators for QC (optional)
+
+### Output
+
+* `processed_df`
+
+Then split into:
+
+* `analysis_input_df` (used for downstream analysis)
+* `calibrator_only_df` (kept for reporting)
+
+---
+
+## 6. Technical Replicate Summarization
+
+Technical replicates are aggregated into a single value per biological unit.
+
+### Grouping
+
+Defined by `group_cols`, typically including:
+
+* plate_id
+* group
+* sample_id
+* bio_rep
+* target
+* (optional: timepoint)
+
+### Metrics computed
+
+* mean Ct (`ct_mean`)
+* standard deviation (`ct_std`)
+* number of replicates
+
+### Output
+
+* `summary_df`
+
+---
+
+## 7. Normalization
+
+Expression values are normalized using reference genes.
+
+### Approach
+
+* ΔCt-style normalization:
+
+  ```
+  normalized_expression = target_expression / reference_expression
+  ```
+
+* Optionally log-transformed:
+
+  ```
+  log2_normalized_expression
+  ```
+
+### Inputs
+
+* `summary_df`
+* reference targets (e.g. GBLP, RPL13)
+
+### Output
+
+* `analysis_df`
+
+---
+
+## 8. Statistical Analysis
+
+### Model fitting
+
+Linear models are fit separately per gene:
+
+```
+log2_normalized_expression ~ biological factors (+ optional plate effect)
+```
+
+Factors are automatically detected based on variability:
+
+* sample_id
+* group
+* timepoint (if present)
+
+### Outputs
+
+* `model_terms_df`: ANOVA-style table
+* `coefficient_df`: model coefficients
+
+---
+
+### Pairwise Comparisons
+
+* Performed between relevant biological groups
+* Welch’s t-test (unequal variance)
+* Multiple testing correction (FDR, Benjamini-Hochberg)
+
+### Output
+
+* `pairwise_df`
+
+---
+
+### Interaction Effects
+
+Interaction terms (e.g. sample_id × group) are extracted from the model:
+
+* Used to assess whether responses differ between groups
+* Stored in `model_terms_df`
+* Can be visualized in single-gene plots
+
+---
+
+## 9. Visualization
+
+### Plot types
+
+#### 1. Expression grid
+
+* Rows: genes
+* Columns: conditions
+* Shows:
+
+  * raw replicate points
+  * mean ± error
+  * selected pairwise comparisons (within each panel)
+
+#### 2. Time-course grid (optional)
+
+* X-axis: timepoint
+* Lines: biological groups
+
+#### 3. Single gene plots
+
+* Detailed visualization per gene
+* Includes:
+
+  * pairwise comparisons
+  * optional interaction annotation
+
+#### 4. Calibrator offset plots
+
+* Visualize inter-plate correction quality
+
+---
+
+### Design principles for plotting
+
+* Raw data is always visible
+* Summary statistics are overlaid
+* Statistical annotations are filtered for clarity
+* No hard-coded biological assumptions
+
+---
+
+## 10. Export
+
+All results are exported to an Excel file:
+
+```
+output/qpcr_results.xlsx
+```
+
+### Sheets include:
+
+* machine_data
+* plate_setup
+* merged_data
+* processed_data
+* tech_rep_summary
+* normalized_expression
+* stats_model_terms
+* stats_coefficients
+* stats_pairwise
+* stats_plot_summary
+* QC reports
+* calibrator data (if present)
+
+Figures are saved in:
+
+```
+output/figures/
 ```
 
 ---
 
-## Workflow Steps
+## Reproducibility
 
-### 1. Data Import & Standardization (`io.py`)
-
-**Goal:** Convert raw qPCR exports into the canonical dataframe format.
-
-**Responsibilities:**
-- Load CSV or Excel files
-- Handle different vendor formats
-- Rename columns using a mapping (`column_map`)
-- Reshape wide → long format if necessary
-- Combine multiple plates into one dataframe
-- Add `plate_id` metadata
-- Preserve metadata needed for standard curves, such as dilution series or known input concentrations
-
-**Key Functions:**
-- `load_qpcr_file()`
-- `load_multiple_plates()`
-- `standardize_columns()`
-
----
-
-### 2. Data Validation (`schema.py`)
-
-**Goal:** Ensure all required information is present and correctly formatted.
-
-**Checks:**
-- Required columns exist:
-  - `sample_id`, `plate_id`, `target`, `ct`
-- Data types are valid
-- No unexpected missing values in critical fields
-- Standard curve rows contain the required dilution or concentration metadata when `is_standard = True`
-
-**Key Functions:**
-- `validate_qpcr_dataframe()`
-
----
-
-### 3. Preprocessing (`preprocess.py`)
-
-**Goal:** Clean and prepare data for analysis.
-
-**Steps:**
-- Remove invalid or missing Ct values
-- Apply Ct cutoffs (e.g., undetermined values)
-- Detect and handle outliers in technical replicates
-- Aggregate technical replicates (e.g., mean Ct)
-- Optionally preprocess standard curve replicates separately from experimental samples
-
-**Key Functions:**
-- `filter_invalid_ct()`
-- `summarize_technical_replicates()`
-
----
-
-### 4. Standard Curve Handling (`standard_curve.py`)
-
-**Goal:** Support primer validation and efficiency-aware analysis using standard curves.
-
-**Use Cases:**
-- Estimate primer efficiency
-- Evaluate assay linearity
-- Compare primer performance across plates
-- Decide whether a primer set passes quality thresholds
-- Use efficiency-corrected quantification if needed
-
-**Typical Calculations:**
-- Fit Ct versus log10(input amount or dilution)
-- Calculate slope
-- Calculate intercept
-- Calculate R²
-- Calculate amplification efficiency
-
-**Common Quality Outputs:**
-- Slope
-- R²
-- Efficiency percentage
-- Pass/fail flag based on configurable thresholds
-
-**Typical Workflow:**
-1. Identify standard curve rows
-2. Group by primer/target and optionally plate
-3. Fit regression model
-4. Store standard curve metrics in a summary table
-5. Optionally merge efficiency estimates into downstream analysis
-
-**Key Functions:**
-- `fit_standard_curve()`
-- `summarize_standard_curves()`
-- `calculate_efficiency()`
-- `flag_poor_standard_curves()`
-
----
-
-### 5. Analysis (`analysis.py`)
-
-**Goal:** Perform core qPCR calculations.
-
-**Typical Calculations:**
-- Mean Ct per sample/target
-- ΔCt = Ct(target) − Ct(reference)
-- ΔΔCt = ΔCt(sample) − ΔCt(control)
-- Fold change = 2^(-ΔΔCt)
-
-**Optional Extension:**
-- Efficiency-corrected relative quantification using primer-specific standard curve efficiencies
-
-**Key Functions:**
-- `calculate_dct()`
-- `calculate_ddct()`
-- `calculate_fold_change()`
-- `calculate_efficiency_corrected_expression()`
-
----
-
-### 6. Statistics (`statistics.py`)
-
-**Goal:** Perform statistical comparisons between groups.
-
-**Examples:**
-- Two groups → t-test
-- Multiple groups → ANOVA
-- Complex designs → linear or mixed models (optional)
-
-**Important:**
-Statistics operate on already processed data, not raw Ct values.
-Depending on the workflow, statistics may be run on ΔCt values, fold changes, or efficiency-corrected values.
-
-**Key Functions:**
-- `compare_groups()`
-
----
-
-### 7. Visualization (`plotting.py`)
-
-**Goal:** Generate plots for quality control and results.
-
-**Plot Types:**
-- Ct distributions
-- Technical replicate variability
-- Fold change boxplots
-- Grouped barplots with raw data points
-- Plate heatmaps (optional)
-- Standard curve plots with regression line and annotated slope, R², and efficiency
-
-**Key Functions:**
-- `plot_ct_distribution()`
-- `plot_fold_change()`
-- `plot_standard_curve()`
-
----
-
-## Plate Handling Strategy
-
-- Always retain `plate_id` in the dataset
-- Allow:
-  - Per-plate normalization
-  - Cross-plate analysis
-  - Per-plate standard curve fitting when relevant
-- Enable inclusion of `plate_id` in statistical models if needed
-
----
-
-## Standard Curve Strategy
-
-Standard curves should be treated as a first-class part of the pipeline rather than an afterthought.
-
-### Recommended Design Choices
-- Keep standard curve data in the same canonical dataframe where possible
-- Mark them explicitly with `is_standard`
-- Preserve dilution or concentration metadata
-- Allow one standard curve per target per plate
-- Allow optional aggregation across plates if the assay design justifies it
-- Store curve metrics in a separate summary dataframe for downstream use
-
-### Typical Output Table for Standard Curves
-
-| target | plate_id | slope | intercept | r_squared | efficiency | pass_qc |
-|--------|----------|-------|-----------|-----------|------------|---------|
-
----
-
-## Minimum Viable Product (MVP)
-
-The first working version should support:
-
-- Import of one or more qPCR files
-- Conversion to canonical dataframe format
-- Validation of required columns
-- Technical replicate averaging
-- Standard curve fitting for primer validation
-- Calculation of slope, R², and efficiency
-- ΔCt, ΔΔCt, and fold change calculation
-- Basic fold change plotting
-- Basic standard curve plotting
-
----
-
-## First Milestone
-
-> Given one or more qPCR export files, produce a clean, validated, and standardized dataframe with one row per measurement, including support for standard curve samples.
-
----
-
-## Recommended Development Order
-
-1. Define canonical dataframe schema
-2. Implement `schema.py`
-3. Implement `io.py`
-4. Test on a small example dataset
-5. Implement `preprocess.py`
-6. Implement `standard_curve.py`
-7. Add `analysis.py`
-8. Add `statistics.py`
-9. Add `plotting.py`
+* All steps are executed from a single script: `run_pipeline.py`
+* Intermediate DataFrames can be inspected at each stage
+* No manual intervention is required once inputs are defined
 
 ---
 
 ## Notes
 
-- Avoid hardcoding column names → use configurable mappings
-- Keep modules independent and reusable
-- Build small, testable functions instead of large scripts
-- Preserve flexibility for different experimental designs
-- Treat standard curve metadata as essential input, not optional after processing begins
+* The pipeline is designed to be flexible but assumes tidy input data
+* Statistical interpretation should always consider biological context
+* Plot aesthetics may require minor adjustments for publication
 
 ---
-
