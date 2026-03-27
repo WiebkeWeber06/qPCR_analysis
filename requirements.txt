@@ -1,0 +1,33 @@
+## Requirements
+
+Python ≥ 3.10 is recommended.
+
+This project provides both Conda and pip environments.
+
+---
+
+### Option 1: Conda (recommended)
+
+Recreate the full environment:
+
+```bash
+conda env create -f environment.yml
+conda activate qpcr_env
+```
+
+---
+
+### Option 2: pip
+
+Install dependencies manually:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+### Why Conda is recommended
+
+The Conda environment ensures better reproducibility, especially for scientific computing dependencies such as `scipy` and `statsmodels`.
+
