@@ -2,26 +2,22 @@
 
 This document describes the full data analysis workflow implemented in the qPCR pipeline, from raw input files to final results and figures.
 
-The workflow is modular and designed to be reproducible, transparent, and adaptable to different experimental designs.
-
 ---
 
 ## Overview of the Pipeline
 
-The analysis consists of the following major steps:
+The workflow consists of:
 
 1. Data import and merging
-2. Metadata validation and structure definition
+2. Metadata definition
 3. Quality control (QC)
 4. Optional inter-plate calibration
-5. Preprocessing and filtering
+5. Preprocessing
 6. Technical replicate summarization
-7. Normalization (reference gene-based)
+7. Normalization
 8. Statistical analysis
 9. Visualization
-10. Export of results
-
-Each step operates on well-defined intermediate DataFrames, allowing inspection and debugging at every stage.
+10. Export
 
 ---
 
@@ -29,149 +25,107 @@ Each step operates on well-defined intermediate DataFrames, allowing inspection 
 
 ### Inputs
 
-* qPCR machine output file (e.g. Bio-Rad CSV)
-* Plate setup file containing metadata per well
+* qPCR machine output file (CSV)
+* Plate setup file (metadata)
 
 ### Process
 
-* Load raw Ct values from machine output
-* Load experimental metadata (sample_id, group, target, etc.)
-* Merge both datasets by:
+* Load Ct values
+* Load metadata
+* Merge using:
 
   * plate_id
-  * well position
+  * well
 
 ### Output
 
-* `merged_df`: combined dataset with Ct values and metadata
+* `merged_df`
 
 ---
 
-## 2. Metadata Structure Definition
+## 2. Metadata Structure
 
-The pipeline dynamically determines which metadata columns are present and relevant.
+Dynamic column detection enables flexible designs.
 
-### Key concepts
+### Key structures
 
-* **group_cols**: define technical replicate grouping
-* **id_cols**: define biological identity for normalization
-* **required_metadata**: columns required for valid analysis
+* **group_cols** → define technical replicates
+* **id_cols** → define biological identity
+* **required_metadata** → required fields
 
-### Example
-
-* group_cols:
-
-  ```
-  plate_id, group, sample_id, (optional: timepoint), bio_rep, target
-  ```
-* id_cols:
-
-  ```
-  plate_id, group, sample_id, (optional: timepoint), bio_rep
-  ```
-
-This allows flexible handling of experiments with or without time series.
+Optional columns (e.g. timepoint) are included automatically if present.
 
 ---
 
 ## 3. Quality Control (QC)
 
-Performed on the merged raw dataset before filtering.
+Performed before filtering.
 
-### Checks include
+### Checks
 
 * Missing metadata
-* Unexpected number of technical replicates
-* High variability between replicates
-* Control well behavior
-* Ct outliers
+* Replicate consistency
+* Ct variability
+* Control behavior
+* Outliers
 
 ### Output
 
-* QC report dictionary containing:
-
-  * overview
-  * missing_metadata
-  * replicate_issues
-  * replicate_variability
-  * control_summary
-  * suspicious_controls
-  * ct_outliers
+* QC report dictionary with multiple tables
 
 ---
 
-## 4. Optional Inter-Plate Calibration
+## 4. Inter-Plate Calibration (Optional)
 
-If calibrator samples are present, inter-plate normalization is applied.
+If calibrators are present:
 
 ### Steps
 
-1. Identify calibrator wells (`is_calibrator == True`)
-2. Compute per-plate, per-target mean Ct
-3. Define reference:
+1. Identify calibrators
+2. Compute mean Ct per plate & target
+3. Define reference (global or plate)
+4. Compute offset
+5. Apply correction
 
-   * global mean OR
-   * specific reference plate
-4. Calculate offset:
-
-   ```
-   offset = reference_ct - plate_ct
-   ```
-5. Apply correction:
-
-   ```
-   ct_calibrated = ct + offset
-   ```
-
-### Output
-
-* `ct_calibrated` column
-* `calibrator_summary_df`
-* `calibrator_offsets_df`
-
-If no calibrators are present, raw Ct values are used unchanged.
+```
+ct_calibrated = ct + offset
+```
 
 ---
 
-## 5. Preprocessing and Filtering
-
-### Steps
+## 5. Preprocessing
 
 * Remove missing Ct values
-* Remove control wells (optional)
-* Retain calibrators for QC (optional)
+* Remove controls (optional)
+* Keep calibrators (optional)
 
 ### Output
 
 * `processed_df`
 
-Then split into:
+Split into:
 
-* `analysis_input_df` (used for downstream analysis)
-* `calibrator_only_df` (kept for reporting)
+* `analysis_input_df`
+* `calibrator_only_df`
 
 ---
 
 ## 6. Technical Replicate Summarization
 
-Technical replicates are aggregated into a single value per biological unit.
-
-### Grouping
-
-Defined by `group_cols`, typically including:
+Grouped by:
 
 * plate_id
 * group
 * sample_id
 * bio_rep
 * target
-* (optional: timepoint)
+* (optional) timepoint
 
-### Metrics computed
+### Metrics
 
-* mean Ct (`ct_mean`)
-* standard deviation (`ct_std`)
-* number of replicates
+* mean Ct
+* standard deviation
+* replicate count
 
 ### Output
 
@@ -181,26 +135,17 @@ Defined by `group_cols`, typically including:
 
 ## 7. Normalization
 
-Expression values are normalized using reference genes.
+Reference gene-based normalization:
 
-### Approach
-
-* ΔCt-style normalization:
-
-  ```
-  normalized_expression = target_expression / reference_expression
-  ```
-
-* Optionally log-transformed:
-
-  ```
-  log2_normalized_expression
-  ```
+```
+normalized_expression
+log2_normalized_expression
+```
 
 ### Inputs
 
-* `summary_df`
-* reference targets (e.g. GBLP, RPL13)
+* summary_df
+* reference targets
 
 ### Output
 
@@ -210,32 +155,31 @@ Expression values are normalized using reference genes.
 
 ## 8. Statistical Analysis
 
-### Model fitting
+### Linear models
 
-Linear models are fit separately per gene:
+One model per gene:
 
 ```
-log2_normalized_expression ~ biological factors (+ optional plate effect)
+log2_normalized_expression ~ factors (+ optional plate effect)
 ```
 
-Factors are automatically detected based on variability:
+Factors:
 
 * sample_id
 * group
-* timepoint (if present)
+* timepoint (optional)
 
 ### Outputs
 
-* `model_terms_df`: ANOVA-style table
-* `coefficient_df`: model coefficients
+* ANOVA table (`model_terms_df`)
+* coefficients (`coefficient_df`)
 
 ---
 
-### Pairwise Comparisons
+### Pairwise comparisons
 
-* Performed between relevant biological groups
-* Welch’s t-test (unequal variance)
-* Multiple testing correction (FDR, Benjamini-Hochberg)
+* Welch t-test
+* Multiple testing correction (FDR)
 
 ### Output
 
@@ -243,13 +187,10 @@ Factors are automatically detected based on variability:
 
 ---
 
-### Interaction Effects
+### Interaction effects
 
-Interaction terms (e.g. sample_id × group) are extracted from the model:
-
-* Used to assess whether responses differ between groups
-* Stored in `model_terms_df`
-* Can be visualized in single-gene plots
+* Extracted from model terms
+* Used to evaluate differential responses
 
 ---
 
@@ -257,68 +198,38 @@ Interaction terms (e.g. sample_id × group) are extracted from the model:
 
 ### Plot types
 
-#### 1. Expression grid
+* Expression grid
+* Time-course plots
+* Single-gene plots
+* Calibrator offset plots
 
-* Rows: genes
-* Columns: conditions
-* Shows:
+### Principles
 
-  * raw replicate points
-  * mean ± error
-  * selected pairwise comparisons (within each panel)
-
-#### 2. Time-course grid (optional)
-
-* X-axis: timepoint
-* Lines: biological groups
-
-#### 3. Single gene plots
-
-* Detailed visualization per gene
-* Includes:
-
-  * pairwise comparisons
-  * optional interaction annotation
-
-#### 4. Calibrator offset plots
-
-* Visualize inter-plate correction quality
-
----
-
-### Design principles for plotting
-
-* Raw data is always visible
-* Summary statistics are overlaid
-* Statistical annotations are filtered for clarity
-* No hard-coded biological assumptions
+* Raw data always shown
+* Summary statistics overlaid
+* Statistical annotations optional
+* Fully data-driven
 
 ---
 
 ## 10. Export
 
-All results are exported to an Excel file:
+### Excel output
 
 ```
 output/qpcr_results.xlsx
 ```
 
-### Sheets include:
+Includes:
 
-* machine_data
-* plate_setup
-* merged_data
-* processed_data
-* tech_rep_summary
-* normalized_expression
-* stats_model_terms
-* stats_coefficients
-* stats_pairwise
-* stats_plot_summary
-* QC reports
-* calibrator data (if present)
+* processed data
+* normalized data
+* statistics
+* QC
 
-Figures are saved in:
+---
+
+### Figures
 
 ```
 output/figures/
@@ -328,16 +239,15 @@ output/figures/
 
 ## Reproducibility
 
-* All steps are executed from a single script: `run_pipeline.py`
-* Intermediate DataFrames can be inspected at each stage
-* No manual intervention is required once inputs are defined
+* Entire workflow runs from `run_pipeline.py`
+* No manual steps required
+* Modular and inspectable
 
 ---
 
 ## Notes
 
-* The pipeline is designed to be flexible but assumes tidy input data
-* Statistical interpretation should always consider biological context
-* Plot aesthetics may require minor adjustments for publication
+* Designed for flexibility across experiments
+* Requires tidy input data
+* Statistical interpretation depends on biological context
 
----
