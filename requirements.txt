@@ -1,0 +1,35 @@
+# qPCR analysis project requirements
+
+# Core data handling
+
+pandas>=1.5
+numpy>=1.23
+
+# Plotting
+
+matplotlib>=3.6
+
+# Statistics
+
+scipy>=1.9
+statsmodels>=0.14
+
+# Excel export
+
+openpyxl>=3.0
+
+# Optional but recommended (better performance / compatibility)
+
+python-dateutil>=2.8
+pytz>=2022.1
+
+## Environment (optional)
+
+We recommend using a virtual environment:
+
+```bash
+python -m venv qpcr_env
+source qpcr_env/bin/activate   # Linux / Mac
+qpcr_env\Scripts\activate      # Windows
+
+pip install -r requirements.txt
