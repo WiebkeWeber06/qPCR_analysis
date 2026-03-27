@@ -17,62 +17,82 @@ This project provides a structured workflow for qPCR data analysis starting from
 
 The goal is to move away from one-off analysis scripts toward a reusable and transparent pipeline.
 
-This project was developed in collaboration with an AI assistant (ChatGPT).
-The overall design, structure, and analytical decisions were led by the author, while code implementation was assisted by AI. All outputs were critically evaluated, adapted, and validated to ensure correctness, robustness, and biological relevance.
-
 ---
 
-## Features
-
-* ✔️ Import of Bio-Rad qPCR output files
-* ✔️ Plate design integration
-* ✔️ Quality control (QC) reporting
-* ✔️ Technical replicate summarization
-* ✔️ Reference gene normalization (ΔCt / ΔΔCt-style)
-* ✔️ Optional inter-plate calibration using calibrators
-* ✔️ Linear-model-based statistical analysis
-* ✔️ Pairwise comparisons with multiple testing correction
-* ✔️ Flexible plotting (grid, single gene, time course)
-* ✔️ Export of all results to Excel
-
----
-
-## Project Structure
-
-```
-qpcr/
-├── analysis.py        # normalization logic
-├── calibration.py    # inter-plate calibration
-├── io.py             # data loading and merging
-├── plotting.py       # visualization functions
-├── preprocess.py     # filtering and data cleaning
-├── qc.py             # quality control reports
-├── schema.py         # dataframe validation
-├── statistics.py     # modeling and statistical tests
-```
-
-```
-scripts/
-└── run_pipeline.py   # main analysis script
-```
-
-```
-tests/data/
-├── raw qPCR files
-└── plate setup files
-```
-
----
-
-## How to Run
-
-1. Activate your environment:
+## Quick start (TL;DR)
 
 ```bash
+conda env create -f environment.yml
+conda activate qpcr_env
+python scripts/run_pipeline.py
+```
+
+---
+
+## Requirements
+
+Python ≥ 3.10 is recommended.
+
+### Option 1: Conda (recommended)
+
+```bash
+conda env create -f environment.yml
 conda activate qpcr_env
 ```
 
-2. Run the pipeline:
+### Option 2: pip
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## Getting Started
+
+### 1. Prepare input data
+
+You need:
+
+* A qPCR machine output file (CSV)
+* A plate setup file with metadata
+
+The plate setup file should include columns such as:
+
+* well
+* target
+* sample_id
+* group
+* bio_rep
+* (optional) timepoint
+* (optional) is_calibrator
+
+---
+
+### 2. Configure the pipeline
+
+Edit:
+
+```bash
+scripts/run_pipeline.py
+```
+
+Update the file paths:
+
+```python
+DATA_FILE = Path("path/to/your/data.csv")
+PLATE_SETUP_FILE = Path("path/to/your/plate_setup.csv")
+```
+
+You can also adjust:
+
+* reference genes
+* plotting settings
+* calibration options
+
+---
+
+### 3. Run the pipeline
 
 ```bash
 python scripts/run_pipeline.py
@@ -80,101 +100,100 @@ python scripts/run_pipeline.py
 
 ---
 
-## Input Data
+## Outputs
 
-The pipeline requires:
-
-### 1. qPCR machine output
-
-* Example: Bio-Rad CSV export
-
-### 2. Plate setup file
-
-* Contains metadata per well:
-
-  * sample_id
-  * group (e.g. condition)
-  * target gene
-  * replicate info
-  * optional calibrator flag
-
----
-
-## Output
-
-All results are saved in:
+### Excel results
 
 ```
-output/
-├── qpcr_results.xlsx
-└── figures/
+output/qpcr_results.xlsx
 ```
 
-### Excel file contains:
+Contains:
 
-* raw data
 * processed data
-* technical replicate summaries
-* normalized expression values
+* normalized expression
 * statistical results
 * QC reports
 
-### Figures include:
+---
+
+### Figures
+
+```
+output/figures/
+```
+
+Includes:
 
 * expression grid plots
 * time-course plots (if applicable)
-* single gene plots with statistics
-* calibrator offset plots (if used)
+* single-gene plots with statistical annotations
+* calibrator diagnostics
 
 ---
 
-## Statistical Analysis
+## Workflow
 
-The pipeline uses linear models of the form:
+A detailed explanation of the analysis steps is provided in:
 
 ```
-expression ~ biological factors (+ optional plate effect)
+workflow.md
 ```
-
-* Automatically detects relevant factors (e.g. group, sample_id, timepoint)
-* Supports interaction terms
-* Performs:
-
-  * model fitting per gene
-  * pairwise comparisons
-  * multiple testing correction (FDR)
 
 ---
 
-## Design Principles
+## Project Structure
 
-* Reproducibility over ad hoc analysis
-* Clear separation of steps (IO, preprocessing, analysis, plotting)
-* Flexible handling of experimental designs
-* Minimal hard-coded biological assumptions
-* Transparent and inspectable outputs
+```
+qpcr/
+    analysis.py
+    statistics.py
+    plotting.py
+    ...
+
+scripts/
+    run_pipeline.py
+
+workflow.md
+requirements.txt
+environment.yml
+```
 
 ---
 
 ## Notes
 
-* Plotting is designed for exploratory and publication-ready visualization,
-  but may still require minor layout adjustments depending on the dataset.
-* Statistical interpretation should always be considered in the biological context.
+* The pipeline is designed to be flexible and data-driven
+* No biological assumptions are hard-coded
+* Statistical results should always be interpreted in biological context
 
 ---
 
-## Future Improvements
+## Future Work
 
-* Improved automatic plot annotation layout
-* Enhanced support for complex experimental designs
-* CLI interface for easier usage
-* Packaging for pip installation
+Planned future improvements to this pipeline include:
+
+* Improving the plotting system, particularly:
+
+  * more robust and readable significance annotations
+  * better handling of complex experimental designs
+  * refinement of layout and aesthetics for publication-ready figures
+
+* Implementing support for standard curves to enable:
+
+  * absolute quantification
+  * efficiency correction
+  * improved comparison across experiments
+
+These additions will further increase the flexibility and applicability of the pipeline for a broader range of qPCR analyses.
 
 ---
 
 ## Author
 
-Wiebke
-PhD project — qPCR data analysis and pipeline development
+**Wiebke Weber**
+PhD Candidate, Uppsala University
 
+This project was developed as part of my PhD work.
+The overall design, structure, and analytical strategy were led by me.
+Implementation support and iterative improvements were developed in collaboration with ChatGPT, whose suggestions I critically evaluated and refined throughout the project.
