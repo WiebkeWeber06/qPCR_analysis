@@ -1,35 +1,33 @@
-# qPCR analysis project requirements
+## Requirements
 
-# Core data handling
+Python ≥ 3.10 is recommended.
 
-pandas>=1.5
-numpy>=1.23
+This project provides both Conda and pip environments.
 
-# Plotting
+---
 
-matplotlib>=3.6
+### Option 1: Conda (recommended)
 
-# Statistics
-
-scipy>=1.9
-statsmodels>=0.14
-
-# Excel export
-
-openpyxl>=3.0
-
-# Optional but recommended (better performance / compatibility)
-
-python-dateutil>=2.8
-pytz>=2022.1
-
-## Environment (optional)
-
-We recommend using a virtual environment:
+Recreate the full environment:
 
 ```bash
-python -m venv qpcr_env
-source qpcr_env/bin/activate   # Linux / Mac
-qpcr_env\Scripts\activate      # Windows
+conda env create -f environment.yml
+conda activate qpcr_env
+```
 
+---
+
+### Option 2: pip
+
+Install dependencies manually:
+
+```bash
 pip install -r requirements.txt
+```
+
+---
+
+### Why Conda is recommended
+
+The Conda environment ensures better reproducibility, especially for scientific computing dependencies such as `scipy` and `statsmodels`.
+
